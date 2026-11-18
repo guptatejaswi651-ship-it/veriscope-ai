@@ -1,0 +1,69 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Build and test artifacts
+build/
+.vite/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage*
+coverage/
+htmlcov/
+*.egg-info/
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+# Python backend
+backend/venv/
+backend/.env
+__pycache__/
+# Local research history database
+backend/veriscope.db
+
+# Secrets and local environment files
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+*.pem
+*.key
+secrets.*
+credentials.*
+**/secrets/
+**/credentials/
+
+# Python environments and generated files
+.venv/
+**/.venv/
+venv/
+**/venv/
+*.py[cod]
+__pycache__/
+
+# Local databases
+*.db
+*.db-*
+*.sqlite
+*.sqlite3

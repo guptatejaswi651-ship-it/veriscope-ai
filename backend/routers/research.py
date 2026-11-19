@@ -7,6 +7,7 @@ from agents.research_agent import search, ResearchProviderError
 from agents.verification_agent import verify, AnalysisProviderError
 from agents.conflict_agent import find_conflicts
 from agents.report_chat_agent import answer_report_question
+from agents.ai_provider import provider_label
 from agents.report_agent import build_report
 from database import get_report, history, save
 
@@ -70,6 +71,7 @@ async def create_research(request: ResearchRequest):
     if len(question) < 3:
         raise HTTPException(status_code=422, detail="Question must contain at least 3 non-space characters.")
     tavily_key = os.getenv("TAVILY_API_KEY")
+    ai_provider_name = provider_label()
     ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").strip().rstrip("/")
     model = os.getenv("OLLAMA_MODEL", "qwen3.5:4b").strip()
     ollama_base_url = ollama_base_url or "http://127.0.0.1:11434"
@@ -95,12 +97,12 @@ async def create_research(request: ResearchRequest):
         raise conflicts_result
 
     if isinstance(analysis_result, AnalysisProviderError):
-        verification_message = f"Ollama verification is unavailable. {analysis_result}"
+        verification_message = f"{ai_provider_name} verification is unavailable. {analysis_result}"
         analysis = {
             "summary": "",
             "findings": [],
             "claims": [],
-            "assessment": "AI evidence assessment unavailable because Ollama verification could not be completed.",
+            "assessment": f"AI evidence assessment unavailable because {ai_provider_name} verification could not be completed.",
         }
         conflicts = []
         conflict_message = "Conflict result was not included because verification was unavailable."
@@ -108,7 +110,7 @@ async def create_research(request: ResearchRequest):
         analysis = analysis_result
         if isinstance(conflicts_result, AnalysisProviderError):
             conflicts = []
-            conflict_message = f"Ollama conflict analysis is unavailable. {conflicts_result}"
+            conflict_message = f"{ai_provider_name} conflict analysis is unavailable. {conflicts_result}"
         else:
             conflicts = conflicts_result
 

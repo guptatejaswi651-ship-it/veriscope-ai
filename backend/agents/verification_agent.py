@@ -1,11 +1,11 @@
 import json
-import httpx
 
-class AnalysisProviderError(RuntimeError):
-    pass
-
-def _ollama_chat_url(base_url: str) -> str:
-    return f"{base_url.rstrip('/')}/api/chat"
+from agents.ai_provider import (
+    AnalysisProviderError,
+    _ollama_chat_url,
+    chat_completion,
+    provider_label,
+)
 
 async def verify(question: str, sources: list[dict], base_url: str, model: str) -> dict:
     evidence = "\n".join(
@@ -13,28 +13,29 @@ async def verify(question: str, sources: list[dict], base_url: str, model: str) 
         for s in sources
     )
     prompt = f'''Act as a careful fact-checking analyst. Use only the provided source excerpts. Return valid JSON with keys: summary (string), findings (array of {{title, detail, source_ids}}), claims (array of {{text, status, explanation, source_ids}}), assessment (string). A claim status must be Supported, Contradicted, or Insufficient evidence. Use Supported or Contradicted only when direct source evidence justifies it. Cite source IDs from the list. Do not invent facts, dates, or sources. Mention material limitations. Keep at most 8 claims and 6 findings.\nQuestion: {question}\nEvidence:\n{evidence}'''
+    raw = await chat_completion(base_url, model, prompt, "verification")
     try:
-        async with httpx.AsyncClient(timeout=120) as client:
-            response = await client.post(_ollama_chat_url(base_url), json={
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "stream": False,
-                "format": "json",
-                "think": False,
-            })
-            response.raise_for_status()
-            raw = response.json()["message"]["content"]
-            result = json.loads(raw)
-    except httpx.HTTPStatusError as exc:
-        raise AnalysisProviderError(f"Ollama verification returned HTTP {exc.response.status_code}.") from exc
-    except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
-        raise AnalysisProviderError(f"Ollama claim analysis failed ({type(exc).__name__}).") from exc
+        result = json.loads(raw)
+    except (ValueError, TypeError) as exc:
+        raise AnalysisProviderError(
+            f"{provider_label()} verification failed ({type(exc).__name__})."
+        ) from exc
+    if not isinstance(result, dict):
+        raise AnalysisProviderError(f"{provider_label()} verification returned an invalid response.")
 
     valid_ids = {source["id"] for source in sources}
     for group in ("findings", "claims"):
-        for item in result.get(group, []):
+        items = result.get(group, [])
+        if not isinstance(items, list):
+            raise AnalysisProviderError(f"{provider_label()} verification returned an invalid response.")
+        for item in items:
+            if not isinstance(item, dict):
+                raise AnalysisProviderError(f"{provider_label()} verification returned an invalid response.")
             source_ids = []
-            for value in item.get("source_ids", []):
+            reported_ids = item.get("source_ids", [])
+            if not isinstance(reported_ids, list):
+                reported_ids = []
+            for value in reported_ids:
                 try:
                     source_id = int(value)
                 except (TypeError, ValueError):

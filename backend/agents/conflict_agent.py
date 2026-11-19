@@ -1,6 +1,5 @@
 import json
-import httpx
-from agents.verification_agent import _ollama_chat_url, AnalysisProviderError
+from agents.ai_provider import AnalysisProviderError, chat_completion, provider_label
 
 async def find_conflicts(question: str, sources: list[dict], base_url: str, model: str) -> list[dict]:
     evidence = "\n".join(
@@ -8,28 +7,26 @@ async def find_conflicts(question: str, sources: list[dict], base_url: str, mode
         for s in sources
     )
     prompt = f'''Compare the evidence excerpts for direct factual disagreements relevant to this question. Return valid JSON only: {{"conflicts":[{{"title":"short description","explanation":"describe the disagreement and plausible date, scope, definition, or method differences without declaring either source false","source_ids":[1,2]}}]}}. Only report a conflict if at least two cited excerpts directly disagree. If none are evidenced, return an empty array. Use no facts outside these excerpts.\nQuestion: {question}\nEvidence:\n{evidence}'''
+    raw = await chat_completion(base_url, model, prompt, "conflict review")
     try:
-        async with httpx.AsyncClient(timeout=120) as client:
-            response = await client.post(_ollama_chat_url(base_url), json={
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "stream": False,
-                "format": "json",
-                "think": False,
-            })
-            response.raise_for_status()
-            raw = response.json()["message"]["content"]
-            result = json.loads(raw)
-    except httpx.HTTPStatusError as exc:
-        raise AnalysisProviderError(f"Ollama conflict review returned HTTP {exc.response.status_code}.") from exc
-    except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
-        raise AnalysisProviderError(f"Ollama conflict review failed ({type(exc).__name__}).") from exc
+        result = json.loads(raw)
+    except (ValueError, TypeError) as exc:
+        raise AnalysisProviderError(
+            f"{provider_label()} conflict review failed ({type(exc).__name__})."
+        ) from exc
+    if not isinstance(result, dict) or not isinstance(result.get("conflicts", []), list):
+        raise AnalysisProviderError(f"{provider_label()} conflict review returned an invalid response.")
 
     valid_ids = {source["id"] for source in sources}
     conflicts = []
     for item in result.get("conflicts", []):
+        if not isinstance(item, dict):
+            raise AnalysisProviderError(f"{provider_label()} conflict review returned an invalid response.")
         ids = []
-        for value in item.get("source_ids", []):
+        reported_ids = item.get("source_ids", [])
+        if not isinstance(reported_ids, list):
+            reported_ids = []
+        for value in reported_ids:
             try:
                 source_id = int(value)
             except (TypeError, ValueError):

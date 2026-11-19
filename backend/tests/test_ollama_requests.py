@@ -1,4 +1,5 @@
 import json
+import os
 import unittest
 from unittest.mock import patch
 
@@ -30,7 +31,10 @@ class OllamaRequestTests(unittest.IsolatedAsyncioTestCase):
 
             return Response()
 
-        with patch.object(httpx.AsyncClient, "post", new=mock_post):
+        with (
+            patch.dict(os.environ, {"AI_PROVIDER": "ollama"}),
+            patch.object(httpx.AsyncClient, "post", new=mock_post),
+        ):
             result = await request
 
         self.assertEqual(len(requests), 1)

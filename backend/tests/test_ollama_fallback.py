@@ -3,6 +3,7 @@ import os
 import unittest
 from unittest.mock import AsyncMock, patch
 
+import httpx
 from fastapi.testclient import TestClient
 
 os.environ["DATABASE_PATH"] = "/tmp/veriscope-route-tests.db"
@@ -28,6 +29,7 @@ class OllamaFallbackTests(unittest.TestCase):
             os.environ,
             {
                 "TAVILY_API_KEY": "test-tavily-key",
+                "AI_PROVIDER": "ollama",
                 "OLLAMA_BASE_URL": "http://ollama.test:11434/",
                 "OLLAMA_MODEL": "qwen3.5:4b",
             },
@@ -154,6 +156,34 @@ class OllamaFallbackTests(unittest.TestCase):
         verify_mock.assert_awaited_once()
         conflict_mock.assert_awaited_once()
         self.assertEqual(started, {"verification", "conflict"})
+
+    def test_cloudflare_analysis_failure_uses_existing_report_fallback(self):
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "AI_PROVIDER": "cloudflare",
+                    "CLOUDFLARE_ACCOUNT_ID": "test-account",
+                    "CLOUDFLARE_API_TOKEN": "test-token",
+                    "TAVILY_API_KEY": "test-tavily-key",
+                },
+            ),
+            patch("routers.research.search", new=AsyncMock(return_value=[self.source])),
+            patch(
+                "httpx.AsyncClient.post",
+                new=AsyncMock(side_effect=httpx.ReadTimeout("mocked timeout")),
+            ) as provider_post,
+        ):
+            response = self.client.post("/api/research", json={"question": "A test research question"})
+
+        self.assertEqual(response.status_code, 200)
+        report = response.json()
+        self.assertEqual(report["sources"], [self.source])
+        self.assertEqual(report["agents_status"]["verification"]["status"], "unavailable")
+        self.assertEqual(report["agents_status"]["conflict"]["status"], "unavailable")
+        self.assertIn("Cloudflare verification", report["agents_status"]["verification"]["message"])
+        self.assertNotIn("test-token", response.text)
+        self.assertEqual(provider_post.await_count, 2)
 
 
 if __name__ == "__main__":
